@@ -14,7 +14,7 @@ namespace Tetris
         private GraphicsDeviceManager _graphics;
         private SpriteBatch _spriteBatch;
 
-        private Texture2D grid_40, pixel, golden_eagle;
+        private Texture2D grid_40, pixel, incognito;
 
         private int W = 10, H = 20, TILE = 45;
         private Rectangle[] GRID;
@@ -22,14 +22,15 @@ namespace Tetris
         private int[,,] figure_pos;
         private Rectangle[,] figures;
         private Rectangle figure_rect;
-        private Rectangle[] figure;
+        private Rectangle[] figure, next_figure;
         private int fig_type;
-        private Color current_figure_color;
+        private Color current_figure_color, next_figure_color;
 
         private bool[,] field;
         private Color[,] color_field;
 
         public Song tetrisTheme;
+        private SpriteFont fontTetris, fontCourier;
 
 
         private int dx;
@@ -63,7 +64,7 @@ namespace Tetris
             // window size
             WINDOW_WIDTH = W * TILE;
             WINDOW_HEIGHT = H * TILE;
-            _graphics.PreferredBackBufferWidth = WINDOW_WIDTH;
+            _graphics.PreferredBackBufferWidth = WINDOW_WIDTH * 2;
             _graphics.PreferredBackBufferHeight = WINDOW_HEIGHT;
             _graphics.IsFullScreen = false;
             _graphics.ApplyChanges();
@@ -113,11 +114,15 @@ namespace Tetris
 
             figure_rect = new Rectangle(0, 0, TILE - 2, TILE - 2);
 
-
+            // set up initial figures
             figure = new Rectangle[4];
-            New_figure();
-            current_figure_color = New_Color();
+            next_figure = new Rectangle[4];
 
+            New_figure(); // set next_figure
+            New_figure(); // switch next_figure to figure and reset next_figure
+            
+            current_figure_color = New_Color();
+            next_figure_color = New_Color();
 
             // set up animation
             anim_count = 0;
@@ -147,7 +152,14 @@ namespace Tetris
             // loading sprites
             grid_40 = Content.Load<Texture2D>(@"Sprites\40grid");
             pixel = Content.Load<Texture2D>(@"Sprites\pixel");
-            golden_eagle = Content.Load<Texture2D>(@"Sprites\golden_eagle_background");
+            //golden_eagle = Content.Load<Texture2D>(@"Sprites\golden_eagle_background"); //looks shitty
+            incognito = Content.Load<Texture2D>(@"Sprites\Incognito");
+
+
+            // loading fonts
+            fontTetris = Content.Load<SpriteFont>(@"Fonts\TetrisFont");
+            fontCourier = Content.Load<SpriteFont>(@"Fonts\CourierFont");
+
 
             //Texture2D pixel = new Texture2D(GraphicsDevice, 1, 1, false, SurfaceFormat.Color);
             //pixel.SetData(new[] { Color.White }); // so that we can draw whatever color we want on top of it 
@@ -225,7 +237,8 @@ namespace Tetris
                     {
                         Add_to_field(figure_old);
                         New_figure();
-                        current_figure_color = New_Color();
+                        current_figure_color = next_figure_color; 
+                        next_figure_color = New_Color();
                         break;
                     }
                 }
@@ -302,6 +315,15 @@ namespace Tetris
                 _spriteBatch.Draw(grid_40, rect, Color.Black);
             }
 
+            //draw right panel
+
+            _spriteBatch.Draw(pixel, new Rectangle(W * TILE, 0, W * TILE, H * TILE), Color.Black);
+            _spriteBatch.DrawString(fontTetris, "Tetris", new Vector2(W * TILE + 10, 100), Color.Red);
+            _spriteBatch.DrawString(fontCourier, "Next:", new Vector2(W * TILE + 75, 200), Color.Red);
+            _spriteBatch.Draw(pixel, new Rectangle(W * TILE + 100, 300, 200, 200), Color.White);
+           
+            _spriteBatch.Draw(incognito, new Rectangle(W * TILE, 700, W * TILE, 200), Color.White);
+
 
             // draw figure
 
@@ -311,6 +333,16 @@ namespace Tetris
                 figure_rect.Y = figure[i].Y * TILE + 1;
                 _spriteBatch.Draw(pixel, figure_rect, current_figure_color);
             }
+
+            //draw next_figure
+
+            for(int i = 0; i < 4; ++i)
+            {
+                figure_rect.X = next_figure[i].X * TILE + W * TILE - 20;
+                figure_rect.Y = next_figure[i].Y * TILE + 330;
+                _spriteBatch.Draw(pixel, figure_rect, next_figure_color);
+            }
+
 
             // draw field
 
@@ -362,8 +394,9 @@ namespace Tetris
             Random rnd = new Random();
             fig_type = rnd.Next(6);
 
+            figure = Copy_figure(next_figure);
             for (int i = 0; i < 4; ++i)
-                figure[i] = new Rectangle(figures[fig_type, i].X, figures[fig_type, i].Y, 1, 1);
+                next_figure[i] = new Rectangle(figures[fig_type, i].X, figures[fig_type, i].Y, 1, 1);
         }
 
         public void Add_to_field(Rectangle[] old)
