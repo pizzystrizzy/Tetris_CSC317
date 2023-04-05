@@ -4,8 +4,8 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Microsoft.Xna.Framework.Media;
 using System;
-using System.Runtime.CompilerServices;
-using System.Security.Principal;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace Tetris
 {
@@ -14,11 +14,13 @@ namespace Tetris
         private GraphicsDeviceManager _graphics;
         private SpriteBatch _spriteBatch;
 
-        private Texture2D grid_40, pixel, incognito;
+        
 
+        // variables for Grid
         private int W = 10, H = 20, TILE = 45;
         private Rectangle[] GRID;
 
+        // variables for figure
         private int[,,] figure_pos;
         private Rectangle[,] figures;
         private Rectangle figure_rect;
@@ -26,13 +28,22 @@ namespace Tetris
         private int fig_type;
         private Color current_figure_color, next_figure_color;
 
+        // variables for field
         private bool[,] field;
         private Color[,] color_field;
 
-        public Song tetrisTheme;
+        // variables for tracking progress
+        private int level, lines_this_level;
+        public int score, total_lines;
+        private Dictionary<int, int> scores;
+
+        // variables for assets
+        private Texture2D grid_40, pixel, incognito;
+        private Song tetrisTheme;
+        private SoundEffect soundRow;
         private SpriteFont fontTetris, fontCourier;
 
-
+        // variables for motion
         private int dx;
         private bool rotate;
         private int anim_count, anim_speed, anim_limit;
@@ -43,7 +54,9 @@ namespace Tetris
         // keyboard state
         public KeyboardState keyboardState, previousKeyboardState;
 
+        public bool gameover, gameovertimer;
 
+        public Stopwatch sw;
 
         public TetrisGame()
         {
@@ -93,10 +106,11 @@ namespace Tetris
                     { { 0, 0 }, { -1, 0 }, { 0, 1 }, { -1, -1 } },
                     { { 0, 0 }, { 0, -1 }, { 0, 1 }, { -1, -1 } },
                     { { 0, 0 }, { 0, -1 }, { 0, 1 }, { 1, -1 } },
-                    { { 0, 0 }, { 0, -1 }, { 0, 1 }, { -1, 0 } }
+                    { { 0, 0 }, { 0, -1 }, { 0, 1 }, { -1, 0 } },
+                    { { -1, 0 }, { -2, 1 }, { -1, 1 }, { 0, 1 } }
                                       };
 
-            int figure_num = 7;
+            int figure_num = 8;
 
 
             figures = new Rectangle[figure_num, 4];
@@ -132,17 +146,25 @@ namespace Tetris
 
 
             // set up field
-            field = new bool[W, H];
-            color_field = new Color[W, H];
+            Reset_Field();
 
-            for (int i = 0; i < W; ++i)
-            {
-                for (int j = 0; j < H; ++j)
-                    field[i, j] = false;
-            }
-
+            // set up progress
+            level = 1;
+            score = 0;
+            total_lines = 0;
+            scores = new Dictionary<int, int>() {
+                { 0, 0},
+                { 1, 100 },
+                { 2, 300 },
+                { 3, 700 },
+                { 4, 1500 }
+                    };
+            gameover = false;
+            gameovertimer = false;
 
             base.Initialize();
+
+
         }
 
         protected override void LoadContent()
@@ -166,6 +188,7 @@ namespace Tetris
 
             // loading sounds
             tetrisTheme = Content.Load<Song>(@"Sounds\Tetris");
+            soundRow = Content.Load<SoundEffect>(@"Sounds\sound_row");
 
 
             // playing music
@@ -185,6 +208,23 @@ namespace Tetris
             // some xbox thing for exiting the game?
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed || Keyboard.GetState().IsKeyDown(Keys.Escape))
                 Exit();
+
+            if (gameover)
+            {
+                if (sw.ElapsedMilliseconds > 2000)
+                {
+                    gameover = false;
+                    gameovertimer = false;
+                    New_figure();
+                    New_figure();
+
+                }
+                else
+                {
+                    base.Update(gameTime);
+                    return;
+                }
+            }
 
             // TODO: Add your update logic here
 
@@ -208,10 +248,13 @@ namespace Tetris
             for (int i = 0; i < 4; ++i)
             {
                 figure[i].X += dx;
-                if (figure[i].X < 0 || figure[i].X > W - 1 || field[figure[i].X, figure[i].Y])
+                if (figure[i].Y >= 0)
                 {
-                    figure = figure_old;
-                    dx = 0;
+                    if (figure[i].X < 0 || figure[i].X > W - 1 || field[figure[i].X, figure[i].Y])
+                    {
+                        figure = figure_old;
+                        dx = 0;
+                    }
                 }
             }
 
@@ -222,8 +265,13 @@ namespace Tetris
             if (keyboardState.IsKeyDown(Keys.S))
                 anim_limit = 100;
             else
-                anim_limit = 2000;
-
+            {
+                anim_limit = 2000 - (level - 1) * 200;
+                if (anim_limit < 1000)
+                    anim_limit = 1000 - (level - 11) * 100;
+                if (anim_limit < 100)
+                    anim_limit = 100;
+            }
             anim_count += anim_speed;
             if (anim_count > anim_limit)
             {
@@ -280,6 +328,7 @@ namespace Tetris
             // check lines
             
             int line = H - 1;
+            int lines = 0;
             for (int row = line; row >= 0; --row)
             {
                 int count = 0;
@@ -290,71 +339,141 @@ namespace Tetris
                     field[x,line] = field[x,row];
                 }
                 if (count < W)
+                {
                     line--;
+                    
+                }
+                else
+                {
+                    soundRow.Play();
+                    lines++;
+                    lines_this_level++;
+                    total_lines++;
+                }
+            
             }
-            
 
-            
+            // update progress
+
+            score += scores[lines];
+            if(lines_this_level > 9)
+            {
+                lines_this_level -= 10;
+                level++;
+            }
+
+            // game over
+
+            for (int i = 0; i < W; ++i)
+            {
+                if (field[i, 0])
+                {
+                    Reset_Field();
+                    total_lines = 0;
+                    level = 1;
+                    score = 0;
+
+                    gameover = true;
+                    sw = Stopwatch.StartNew();
+
+                }
+
+            }
+
+
 
             base.Update(gameTime);
         }
 
         protected override void Draw(GameTime gameTime)
         {
-            // clear canvas
-            GraphicsDevice.Clear(Color.White);
-
-            // begin rendering
-            _spriteBatch.Begin();
 
 
-            //_spriteBatch.Draw(golden_eagle, new Rectangle(0,0, W * TILE, H * TILE), Color.White);  //doesn't work, ugly
+            
 
-            foreach (Rectangle rect in GRID)
-            {
-                _spriteBatch.Draw(grid_40, rect, Color.Black);
-            }
+                // clear canvas
+                GraphicsDevice.Clear(Color.LightGray);
 
-            //draw right panel
+                // begin rendering
+                _spriteBatch.Begin();
 
-            _spriteBatch.Draw(pixel, new Rectangle(W * TILE, 0, W * TILE, H * TILE), Color.Black);
-            _spriteBatch.DrawString(fontTetris, "Tetris", new Vector2(W * TILE + 10, 100), Color.Red);
-            _spriteBatch.DrawString(fontCourier, "Next:", new Vector2(W * TILE + 75, 200), Color.Red);
-            _spriteBatch.Draw(pixel, new Rectangle(W * TILE + 100, 300, 200, 200), Color.White);
-           
-            _spriteBatch.Draw(incognito, new Rectangle(W * TILE, 700, W * TILE, 200), Color.White);
+                // draw grid
 
-
-            // draw figure
-
-            for (int i = 0; i < 4; ++i)
-            {
-                figure_rect.X = figure[i].X * TILE + 1;
-                figure_rect.Y = figure[i].Y * TILE + 1;
-                _spriteBatch.Draw(pixel, figure_rect, current_figure_color);
-            }
-
-            //draw next_figure
-
-            for(int i = 0; i < 4; ++i)
-            {
-                figure_rect.X = next_figure[i].X * TILE + W * TILE - 20;
-                figure_rect.Y = next_figure[i].Y * TILE + 330;
-                _spriteBatch.Draw(pixel, figure_rect, next_figure_color);
-            }
-
-
-            // draw field
-
-            for (int i = 0; i < W; ++i)
-            {
-                for (int j = 0; j < H; ++j)
+                foreach (Rectangle rect in GRID)
                 {
-                    if (field[i, j] == true)
-                        _spriteBatch.Draw(pixel, new Rectangle(i * TILE + 1, j * TILE + 1, TILE - 2, TILE - 2), color_field[i,j]);
+                    _spriteBatch.Draw(grid_40, rect, Color.Black);
                 }
 
+
+
+
+                //_spriteBatch.Draw(golden_eagle, new Rectangle(0,0, W * TILE, H * TILE), Color.White);  //doesn't work, ugly
+
+
+
+                //draw right panel
+
+                _spriteBatch.Draw(pixel, new Rectangle(W * TILE, 0, W * TILE, H * TILE), Color.Black);
+                _spriteBatch.DrawString(fontTetris, "Tetris", new Vector2(W * TILE + 10, 30), Color.Red);
+                _spriteBatch.DrawString(fontCourier, "Next:", new Vector2(W * TILE + 75, 200), Color.Red);
+                _spriteBatch.Draw(pixel, new Rectangle(W * TILE + 100, 300, 200, 200), Color.White);
+                _spriteBatch.DrawString(fontCourier, "Score: " + score.ToString(), new Vector2(W * TILE + 75, 550), Color.White);
+                _spriteBatch.DrawString(fontCourier, "Lines: " + total_lines.ToString(), new Vector2(W * TILE + 75, 600), Color.White);
+                _spriteBatch.DrawString(fontCourier, "Level: " + level.ToString(), new Vector2(W * TILE + 75, 650), Color.White);
+                _spriteBatch.Draw(incognito, new Rectangle(W * TILE, 700, W * TILE, 200), Color.White);
+
+
+                // draw figure
+
+                for (int i = 0; i < 4; ++i)
+                {
+                    figure_rect.X = figure[i].X * TILE + 1;
+                    figure_rect.Y = figure[i].Y * TILE + 1;
+                    _spriteBatch.Draw(pixel, figure_rect, current_figure_color);
+                }
+
+                //draw next_figure
+
+                for (int i = 0; i < 4; ++i)
+                {
+                    figure_rect.X = next_figure[i].X * TILE + W * TILE - 20;
+                    figure_rect.Y = next_figure[i].Y * TILE + 330;
+                    _spriteBatch.Draw(pixel, figure_rect, next_figure_color);
+                }
+
+
+                // draw field
+
+                for (int i = 0; i < W; ++i)
+                {
+                    for (int j = 0; j < H; ++j)
+                    {
+                        if (field[i, j] == true)
+                            _spriteBatch.Draw(pixel, new Rectangle(i * TILE + 1, j * TILE + 1, TILE - 2, TILE - 2), color_field[i, j]);
+                    }
+
+                }
+
+            // game over
+            if (gameover)
+            {
+
+                gameovertimer = true;
+
+
+                for (int x = 0; x < W; ++x)
+                {
+                    for (int y = 0; y < H; ++y)
+                    {
+
+                        _spriteBatch.Draw(pixel, new Rectangle(x * TILE, y * TILE, TILE, TILE), New_Color());
+
+                    }
+                }
+
+
             }
+
 
 
             // end rendering
@@ -392,7 +511,7 @@ namespace Tetris
         public void New_figure()
         {
             Random rnd = new Random();
-            fig_type = rnd.Next(6);
+            fig_type = rnd.Next(7);
 
             figure = Copy_figure(next_figure);
             for (int i = 0; i < 4; ++i)
@@ -409,16 +528,27 @@ namespace Tetris
                 
         }
 
-        public Color New_Color()
+        public static Color New_Color()
         {
             Random rnd = new Random();
-            int R = rnd.Next(1, 256);
-            int G = rnd.Next(1, 256);
-            int B = rnd.Next(1, 256);
+            int R = rnd.Next(0, 200);
+            int G = rnd.Next(0, 200);
+            int B = rnd.Next(0, 200);
 
             return new Color(R, G, B);
         }
 
+        public void Reset_Field()
+        {
+            field = new bool[W, H];
+            color_field = new Color[W, H];
+
+            for (int i = 0; i < W; ++i)
+            {
+                for (int j = 0; j < H; ++j)
+                    field[i, j] = false;
+            }
+        }
             
     }
 }
